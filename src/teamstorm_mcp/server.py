@@ -11,6 +11,7 @@ from fastmcp.tools import ToolResult
 from teamstorm_mcp.client import TeamStormClient
 from teamstorm_mcp.config import Settings
 from teamstorm_mcp.constants import (
+    COMPLETION_COMMENT_TOOL_DESCRIPTION,
     PACKAGE_VERSION,
     READ_ONLY_TOOL_ANNOTATIONS,
     SERVER_INSTRUCTIONS,
@@ -115,11 +116,7 @@ async def teamstorm_get_comments(task_key: str, ctx: Context) -> CommentsResult:
 
 @mcp.tool(
     annotations=WRITE_NON_IDEMPOTENT_TOOL_ANNOTATIONS,
-    description=(
-        "Add a comment to an existing TeamStorm task. Use this after completing implementation "
-        "to report what was done, or when the user explicitly requests a comment. Do not call it "
-        "when the user asked not to write to TeamStorm. Repeating the call creates another comment."
-    ),
+    description=COMPLETION_COMMENT_TOOL_DESCRIPTION,
 )
 async def teamstorm_add_comment(
     task_key: str,

@@ -53,46 +53,51 @@ invent completed work or checks.
 
 ## Reporting completion
 
-After a requested implementation is actually complete and verified, add one
-TeamStorm comment with `teamstorm_add_comment`, unless the user asked not to
-write to TeamStorm. Do not add a comment for read-only requests such as “look
-at TS-123”.
+After the requested implementation changes are complete, add one TeamStorm
+comment with `teamstorm_add_comment`, unless the user asked not to write to
+TeamStorm. Do not add a comment for read-only requests such as “look at TS-123”.
+If implementation is incomplete, do not create a completion comment. Report
+verification failures or limitations only to the user in chat; never copy them
+into the TeamStorm comment.
 
 Use this structure:
 
 ```markdown
-## Реализация завершена
-
-### Что сделано
+## Что сделано
 
 - ...
 
-### Измененные компоненты
+### API-контракт
 
-- `src/...`
-
-### Проверки
-
-- `pytest` — passed
-
-### Технические решения
-
-- ...
-
-### Дополнительно
-
-- ...
+- `METHOD /public/path` — назначение endpoint.
+  - Запрос: только публичные поля и обязательные параметры.
+  - Успешный ответ: HTTP-статус и краткое описание публичного тела ответа.
 ```
 
-Only claim checks that were actually run. Explicitly identify failed or skipped
-checks. Because comment creation is non-idempotent, do not repeat it after an
-ambiguous transport failure.
+Include `API-контракт` only when a public endpoint was added or changed. Keep it
+short and describe only the external contract. The comment must contain only
+completed user-visible behavior. It must never contain:
+
+- successful, failed, or skipped check results;
+- errors, exceptions, stack traces, blockers, or incomplete work;
+- shell commands, local paths, hosts, ports, or environment details;
+- database, schema, table, column, index, constraint, or migration internals;
+- internal class, model, function, or module names;
+- credentials, tokens, authorization headers, or other secrets.
+
+Tests may be mentioned only as a completed coverage improvement, without test
+names, commands, results, failures, or infrastructure details. Keep diagnostic
+and verification information in the response to the user, not in TeamStorm.
+Because comment creation is non-idempotent, do not repeat it after an ambiguous
+transport failure.
 
 ## Safety
 
 Never:
 
 - expose `TEAMSTORM_TOKEN` or authorization headers;
+- expose database tables, columns, schema objects, connection details, or other
+  internal persistence implementation in comments;
 - delete TeamStorm tasks, comments, attachments, or workspaces;
 - change assignee, description, status, or other task data without an explicit
   user request;
