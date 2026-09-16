@@ -1,0 +1,235 @@
+"""Application services coordinating TeamStorm API operations."""
+
+import asyncio
+from collections.abc import Awaitable
+from dataclasses import dataclass
+
+from teamstorm_mcp.client import TeamStormClient
+from teamstorm_mcp.constants import DEFAULT_MAX_CONTEXT_ITEMS
+from teamstorm_mcp.exceptions import TeamStormError
+from teamstorm_mcp.models import (
+    Attachment,
+    Comment,
+    TaskContext,
+    TaskUpdate,
+    WorkItem,
+    WorkItemAttribute,
+    WorkItemLink,
+)
+from teamstorm_mcp.parser import parse_task_key
+from teamstorm_mcp.task_description import render_task_description
+
+
+@dataclass(slots=True)
+class SectionResult[T]:
+    value: T | None = None
+    error: TeamStormError | None = None
+
+
+class TeamStormService:
+    """Expose task-key-oriented operations independent of MCP."""
+
+    def __init__(
+        self,
+        client: TeamStormClient,
+        *,
+        max_context_items: int = DEFAULT_MAX_CONTEXT_ITEMS,
+    ) -> None:
+        self._client = client
+        self._max_context_items = max_context_items
+
+    async def get_task(self, task_key: str) -> WorkItem:
+        parsed = parse_task_key(task_key)
+        return await self._client.get_workitem(parsed.workspace, parsed.key)
+
+    async def get_comments(self, task_key: str) -> list[Comment]:
+        parsed = parse_task_key(task_key)
+        return await self._client.get_comments(parsed.workspace, parsed.key)
+
+    async def add_comment(self, task_key: str, text: str) -> Comment:
+        parsed = parse_task_key(task_key)
+        return await self._client.add_comment(parsed.workspace, parsed.key, text)
+
+    async def get_attachments(self, task_key: str) -> list[Attachment]:
+        parsed = parse_task_key(task_key)
+        return await self._client.get_attachments(parsed.workspace, parsed.key)
+
+    async def get_links(self, task_key: str) -> list[WorkItemLink]:
+        parsed = parse_task_key(task_key)
+        return await self._client.get_links(parsed.workspace, parsed.key)
+
+    async def update_task(
+        self,
+        task_key: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        status: str | None = None,
+    ) -> WorkItem:
+        parsed = parse_task_key(task_key)
+        return await self._client.update_workitem(
+            parsed.workspace,
+            parsed.key,
+            TaskUpdate(name=name, description=description, status=status),
+        )
+
+    async def set_task_description(
+        self,
+        task_key: str,
+        *,
+        task_summary: str,
+        work_done: list[str] | None = None,
+    ) -> WorkItem:
+        description = render_task_description(task_summary, work_done)
+        return await self.update_task(task_key, description=description)
+
+    async def get_task_context(
+        self,
+        task_key: str,
+        *,
+        include_comments: bool = True,
+        include_attributes: bool = True,
+        include_attachments: bool = True,
+        include_links: bool = True,
+        include_children: bool = False,
+    ) -> TaskContext:
+        parsed = parse_task_key(task_key)
+        task = await self._client.get_workitem(parsed.workspace, parsed.key)
+
+        (
+            attributes_result,
+            comments_result,
+            attachments_result,
+            links_result,
+            children_result,
+        ) = await self._load_sections(
+            parsed.workspace,
+            parsed.key,
+            include_attributes=include_attributes,
+            include_comments=include_comments,
+            include_attachments=include_attachments,
+            include_links=include_links,
+            include_children=include_children,
+        )
+
+        warnings: list[str] = []
+        attributes = self._required_section(
+            attributes_result,
+            fallback=task.attributes,
+            warning="Could not load the dedicated attributes endpoint; using task attributes.",
+            warnings=warnings,
+        )
+        comments = self._required_section(comments_result)
+        attachments = self._optional_section(
+            attachments_result,
+            "Attachments could not be loaded.",
+            warnings,
+        )
+        links = self._optional_section(links_result, "Related tasks could not be loaded.", warnings)
+        children = self._optional_section(
+            children_result,
+            "Child tasks could not be loaded.",
+            warnings,
+        )
+
+        attributes = self._limit(attributes, "attributes", warnings)
+        comments = self._limit(comments, "comments", warnings)
+        attachments = self._limit(attachments, "attachments", warnings)
+        links = self._limit(links, "related tasks", warnings)
+        children = self._limit(children, "child tasks", warnings)
+
+        return TaskContext(
+            key=parsed.key,
+            workspace=parsed.workspace,
+            task=task,
+            attributes=attributes,
+            comments=comments,
+            attachments=attachments,
+            links=links,
+            children=children,
+            warnings=warnings,
+        )
+
+    async def _load_sections(
+        self,
+        workspace: str,
+        task_key: str,
+        *,
+        include_attributes: bool,
+        include_comments: bool,
+        include_attachments: bool,
+        include_links: bool,
+        include_children: bool,
+    ) -> tuple[
+        SectionResult[list[WorkItemAttribute]],
+        SectionResult[list[Comment]],
+        SectionResult[list[Attachment]],
+        SectionResult[list[WorkItemLink]],
+        SectionResult[list[WorkItem]],
+    ]:
+        return await asyncio.gather(
+            self._load(self._client.get_workitem_attributes(workspace, task_key))
+            if include_attributes
+            else self._ready([]),
+            self._load(self._client.get_comments(workspace, task_key))
+            if include_comments
+            else self._ready([]),
+            self._load(self._client.get_attachments(workspace, task_key))
+            if include_attachments
+            else self._ready([]),
+            self._load(self._client.get_links(workspace, task_key))
+            if include_links
+            else self._ready([]),
+            self._load(self._client.get_children(workspace, task_key))
+            if include_children
+            else self._ready([]),
+        )
+
+    @staticmethod
+    async def _load[T](awaitable: Awaitable[T]) -> SectionResult[T]:
+        try:
+            return SectionResult(value=await awaitable)
+        except TeamStormError as exc:
+            return SectionResult(error=exc)
+
+    @staticmethod
+    async def _ready[T](value: T) -> SectionResult[T]:
+        return SectionResult(value=value)
+
+    @staticmethod
+    def _required_section[T](
+        result: SectionResult[T],
+        *,
+        fallback: T | None = None,
+        warning: str | None = None,
+        warnings: list[str] | None = None,
+    ) -> T:
+        if result.error is None and result.value is not None:
+            return result.value
+        if fallback is not None:
+            if warning is not None and warnings is not None:
+                warnings.append(warning)
+            return fallback
+        if result.error is not None:
+            raise result.error
+        raise RuntimeError("Required TeamStorm context section has no value")
+
+    @staticmethod
+    def _optional_section[T](
+        result: SectionResult[list[T]],
+        warning: str,
+        warnings: list[str],
+    ) -> list[T]:
+        if result.error is not None:
+            warnings.append(f"{warning} {result.error}")
+            return []
+        return result.value or []
+
+    def _limit[T](self, items: list[T], section: str, warnings: list[str]) -> list[T]:
+        if len(items) <= self._max_context_items:
+            return items
+        warnings.append(
+            f"The {section} section was truncated from {len(items)} to "
+            f"{self._max_context_items} items."
+        )
+        return items[-self._max_context_items :]
