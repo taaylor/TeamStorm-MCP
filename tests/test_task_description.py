@@ -1,7 +1,7 @@
 import pytest
 
-from teamstorm_mcp.exceptions import TeamStormBadRequestError
-from teamstorm_mcp.task_description import render_task_description
+from teamstorm_mcp.application.exceptions import TeamStormBadRequestError
+from teamstorm_mcp.application.task_description import render_task_description
 
 
 @pytest.mark.parametrize("work_done", [None, []])

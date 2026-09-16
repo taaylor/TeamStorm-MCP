@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-from teamstorm_mcp.constants import TASK_KEY_PATTERN
-from teamstorm_mcp.exceptions import InvalidTaskKeyError
+from teamstorm_mcp.application.constants import TASK_KEY_PATTERN
+from teamstorm_mcp.application.exceptions import InvalidTaskKeyError
 
 
 @dataclass(frozen=True, slots=True)

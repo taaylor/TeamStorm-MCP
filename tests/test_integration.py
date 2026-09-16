@@ -3,8 +3,8 @@ import os
 import pytest
 from pydantic import SecretStr
 
-from teamstorm_mcp.client import TeamStormClient
-from teamstorm_mcp.service import TeamStormService
+from teamstorm_mcp.adapters.teamstorm.client import TeamStormClient
+from teamstorm_mcp.application.services.teamstorm import TeamStormService
 
 
 @pytest.mark.integration

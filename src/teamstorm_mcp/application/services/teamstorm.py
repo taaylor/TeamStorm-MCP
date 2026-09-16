@@ -4,10 +4,10 @@ import asyncio
 from collections.abc import Awaitable
 from dataclasses import dataclass
 
-from teamstorm_mcp.client import TeamStormClient
-from teamstorm_mcp.constants import DEFAULT_MAX_CONTEXT_ITEMS
-from teamstorm_mcp.exceptions import TeamStormError
-from teamstorm_mcp.models import (
+from teamstorm_mcp.application.constants import DEFAULT_MAX_CONTEXT_ITEMS
+from teamstorm_mcp.application.exceptions import TeamStormError
+from teamstorm_mcp.application.interfaces.teamstorm import TeamStormGateway
+from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
     TaskContext,
@@ -16,8 +16,8 @@ from teamstorm_mcp.models import (
     WorkItemAttribute,
     WorkItemLink,
 )
-from teamstorm_mcp.parser import parse_task_key
-from teamstorm_mcp.task_description import render_task_description
+from teamstorm_mcp.application.parser import parse_task_key
+from teamstorm_mcp.application.task_description import render_task_description
 
 
 @dataclass(slots=True)
@@ -31,7 +31,7 @@ class TeamStormService:
 
     def __init__(
         self,
-        client: TeamStormClient,
+        client: TeamStormGateway,
         *,
         max_context_items: int = DEFAULT_MAX_CONTEXT_ITEMS,
     ) -> None:

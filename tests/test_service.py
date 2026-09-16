@@ -2,10 +2,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from teamstorm_mcp.client import TeamStormClient
-from teamstorm_mcp.exceptions import TeamStormConnectionError
-from teamstorm_mcp.models import Attachment, Comment, WorkItem, WorkItemAttribute, WorkItemLink
-from teamstorm_mcp.service import TeamStormService
+from teamstorm_mcp.application.exceptions import TeamStormConnectionError
+from teamstorm_mcp.application.interfaces.teamstorm import TeamStormGateway
+from teamstorm_mcp.application.models import (
+    Attachment,
+    Comment,
+    WorkItem,
+    WorkItemAttribute,
+    WorkItemLink,
+)
+from teamstorm_mcp.application.services.teamstorm import TeamStormService
 
 
 def task() -> WorkItem:
@@ -62,7 +68,7 @@ def link() -> WorkItemLink:
 
 @pytest.fixture
 def api() -> AsyncMock:
-    client = AsyncMock(spec=TeamStormClient)
+    client = AsyncMock(spec=TeamStormGateway)
     client.get_workitem.return_value = task()
     client.get_workitem_attributes.return_value = [attribute()]
     client.get_comments.return_value = [comment()]

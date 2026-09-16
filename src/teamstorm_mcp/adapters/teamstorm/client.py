@@ -6,10 +6,10 @@ from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
 from typing import TypeVar
 
-import httpx
+import aiohttp
 from pydantic import SecretStr, TypeAdapter, ValidationError
 
-from teamstorm_mcp.constants import (
+from teamstorm_mcp.adapters.teamstorm.constants import (
     DEFAULT_TIMEOUT_SECONDS,
     MAX_GET_ATTEMPTS,
     MAX_PAGINATED_ITEMS,
@@ -19,7 +19,8 @@ from teamstorm_mcp.constants import (
     RETRYABLE_HTTP_STATUSES,
     TEAMSTORM_API_PATH,
 )
-from teamstorm_mcp.exceptions import (
+from teamstorm_mcp.adapters.teamstorm.schemas import ItemsResponse, PaginationResponse
+from teamstorm_mcp.application.exceptions import (
     TeamStormAuthenticationError,
     TeamStormBadRequestError,
     TeamStormConflictError,
@@ -31,11 +32,9 @@ from teamstorm_mcp.exceptions import (
     TeamStormServerError,
     TeamStormTimeoutError,
 )
-from teamstorm_mcp.models import (
+from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
-    ItemsResponse,
-    PaginationResponse,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
@@ -56,23 +55,28 @@ class TeamStormClient:
         token: SecretStr,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         *,
-        transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
-        normalized_url = f"{base_url.rstrip('/')}{TEAMSTORM_API_PATH}/"
+        self._base_url = f"{base_url.rstrip('/')}{TEAMSTORM_API_PATH}/"
         self._timeout = timeout
         self._sleep = sleep
-        self._client = httpx.AsyncClient(
-            base_url=normalized_url,
-            timeout=httpx.Timeout(timeout),
-            transport=transport,
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"PrivateToken {token.get_secret_value()}",
-            },
-        )
+        self._headers = {
+            "Accept": "application/json",
+            "Authorization": f"PrivateToken {token.get_secret_value()}",
+        }
+        self._session: aiohttp.ClientSession | None = None
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            self._session = aiohttp.ClientSession(
+                base_url=self._base_url,
+                timeout=aiohttp.ClientTimeout(total=self._timeout),
+                headers=self._headers,
+            )
+        return self._session
 
     async def __aenter__(self) -> "TeamStormClient":
+        self._get_session()
         return self
 
     async def __aexit__(
@@ -86,7 +90,8 @@ class TeamStormClient:
     async def aclose(self) -> None:
         """Close the HTTP connection pool."""
 
-        await self._client.aclose()
+        if self._session is not None:
+            await self._session.close()
 
     async def get_workitem(self, workspace: str, workitem: str) -> WorkItem:
         response = await self._request(
@@ -194,9 +199,7 @@ class TeamStormClient:
         seen_tokens: set[str] = set()
         while len(items) < maximum:
             page_params = dict(params or {})
-            page_params["maxItemsCount"] = str(
-                min(PAGINATION_PAGE_SIZE, maximum - len(items))
-            )
+            page_params["maxItemsCount"] = str(min(PAGINATION_PAGE_SIZE, maximum - len(items)))
             if next_token is not None:
                 page_params["fromToken"] = next_token
 
@@ -247,36 +250,39 @@ class TeamStormClient:
         params: Mapping[str, str] | None = None,
         json: Mapping[str, object] | None = None,
         resource: str,
-    ) -> httpx.Response:
+    ) -> bytes:
         attempts = MAX_GET_ATTEMPTS if method == "GET" else 1
         for attempt in range(attempts):
             logger.info("TeamStorm request %s /%s", method, path)
             try:
-                response = await self._client.request(method, path, params=params, json=json)
-            except httpx.TimeoutException as exc:
+                async with self._get_session().request(
+                    method, path, params=params, json=json, allow_redirects=False
+                ) as response:
+                    body = await response.read()
+            except TimeoutError as exc:
                 if method == "GET" and attempt + 1 < attempts:
                     await self._sleep(RETRY_BACKOFF_SECONDS[attempt])
                     continue
                 raise TeamStormTimeoutError(
                     f"TeamStorm request timed out after {self._timeout:g} seconds."
                 ) from exc
-            except httpx.RequestError as exc:
+            except aiohttp.ClientError as exc:
                 if method == "GET" and attempt + 1 < attempts:
                     await self._sleep(RETRY_BACKOFF_SECONDS[attempt])
                     continue
                 raise TeamStormConnectionError("Could not connect to TeamStorm.") from exc
 
-            if response.status_code in RETRYABLE_HTTP_STATUSES and attempt + 1 < attempts:
+            if response.status in RETRYABLE_HTTP_STATUSES and attempt + 1 < attempts:
                 await self._sleep(self._retry_delay(response, attempt))
                 continue
 
             self._raise_for_status(response, resource=resource)
-            return response
+            return body
 
         raise AssertionError("TeamStorm request loop exited unexpectedly")
 
     @staticmethod
-    def _retry_delay(response: httpx.Response, attempt: int) -> float:
+    def _retry_delay(response: aiohttp.ClientResponse, attempt: int) -> float:
         retry_after = response.headers.get("Retry-After")
         if retry_after is not None:
             try:
@@ -286,15 +292,13 @@ class TeamStormClient:
         return RETRY_BACKOFF_SECONDS[attempt]
 
     @staticmethod
-    def _raise_for_status(response: httpx.Response, *, resource: str) -> None:
-        status = response.status_code
+    def _raise_for_status(response: aiohttp.ClientResponse, *, resource: str) -> None:
+        status = response.status
         match status:
             case value if HTTPStatus.OK <= value < HTTPStatus.MULTIPLE_CHOICES:
                 return
             case HTTPStatus.BAD_REQUEST:
-                raise TeamStormBadRequestError(
-                    f"TeamStorm rejected the request for {resource}."
-                )
+                raise TeamStormBadRequestError(f"TeamStorm rejected the request for {resource}.")
             case HTTPStatus.UNAUTHORIZED:
                 raise TeamStormAuthenticationError(
                     "TeamStorm authentication failed. Check TEAMSTORM_TOKEN."
@@ -317,12 +321,12 @@ class TeamStormClient:
     @staticmethod
     def _validate(
         model: type[ModelT],
-        response: httpx.Response,
+        response: bytes,
         *,
         resource: str,
     ) -> ModelT:
         try:
-            return TypeAdapter(model).validate_json(response.content)
+            return TypeAdapter(model).validate_json(response)
         except ValidationError as exc:
             raise TeamStormInvalidResponseError(
                 f"TeamStorm returned an invalid response for {resource}."
@@ -331,12 +335,12 @@ class TeamStormClient:
     @staticmethod
     def _validate_list(
         adapter: TypeAdapter[list[ModelT]],
-        response: httpx.Response,
+        response: bytes,
         *,
         resource: str,
     ) -> list[ModelT]:
         try:
-            return adapter.validate_json(response.content)
+            return adapter.validate_json(response)
         except ValidationError as exc:
             raise TeamStormInvalidResponseError(
                 f"TeamStorm returned an invalid response for {resource}."

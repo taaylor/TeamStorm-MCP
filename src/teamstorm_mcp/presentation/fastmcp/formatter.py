@@ -2,7 +2,7 @@
 
 import json
 
-from teamstorm_mcp.models import TaskContext, WorkItemAttribute
+from teamstorm_mcp.application.models import TaskContext, WorkItemAttribute
 
 
 def format_task_context(context: TaskContext) -> str:
@@ -82,4 +82,3 @@ def _format_attribute(attribute: WorkItemAttribute) -> list[str]:
 def _name(value: object) -> str:
     name = getattr(value, "name", None)
     return name if isinstance(name, str) else "Unknown"
-

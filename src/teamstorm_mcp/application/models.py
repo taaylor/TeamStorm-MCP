@@ -1,4 +1,4 @@
-"""Pydantic API and domain models used by TeamStorm MCP."""
+"""Shared typed task data used by application services."""
 
 from datetime import datetime
 
@@ -117,20 +117,6 @@ class WorkItemLink(TeamStormModel):
     linked_workitem: WorkItem
 
 
-class ItemsResponse[T](TeamStormModel):
-    """TeamStorm envelope used by several list endpoints."""
-
-    items: list[T] = Field(default_factory=list)
-
-
-class PaginationResponse[T](ItemsResponse[T]):
-    """Token-based TeamStorm pagination envelope."""
-
-    from_token: str | None = None
-    max_items_count: int | None = None
-    next_token: str | None = None
-
-
 class TaskUpdate(BaseModel):
     """Intentionally limited set of fields that MCP may update."""
 
@@ -149,18 +135,3 @@ class TaskContext(TeamStormModel):
     links: list[WorkItemLink] = Field(default_factory=list)
     children: list[WorkItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-
-
-class CommentsResult(TeamStormModel):
-    task_key: str
-    comments: list[Comment]
-
-
-class AttachmentsResult(TeamStormModel):
-    task_key: str
-    attachments: list[Attachment]
-
-
-class LinksResult(TeamStormModel):
-    task_key: str
-    links: list[WorkItemLink]
