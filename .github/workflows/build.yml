@@ -3,7 +3,6 @@ name: Build and release
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -13,11 +12,13 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,19 +30,20 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --locked --dev
-      - name: Check release version
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Read release version
+        id: version
         run: |
           uv run --no-sync python - <<'PY'
           import os
+          import re
           import tomllib
           from pathlib import Path
 
           version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
-          if os.environ["RELEASE_TAG"] != f"v{version}":
-              raise SystemExit(f"Release tag must match pyproject.toml: v{version}")
+          if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
+              raise SystemExit("Release version must have the form X.Y.Z")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"release_tag=v{version}\n")
           PY
       - name: Lint and type check
         run: |
@@ -80,11 +82,15 @@ jobs:
 
   release:
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           name: teamstorm-mcp-dist
@@ -93,11 +99,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
         run: |
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/* --clobber
+            echo "Release $RELEASE_TAG already exists; skipping publication."
           else
+            if git rev-parse --verify "refs/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+              if [ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$GITHUB_SHA" ]; then
+                echo "::error::Tag $RELEASE_TAG points to another commit. Bump the project version."
+                exit 1
+              fi
+            fi
             gh release create "$RELEASE_TAG" dist/* \
-              --verify-tag --generate-notes --title "$RELEASE_TAG"
+              --target "$GITHUB_SHA" --generate-notes --title "$RELEASE_TAG"
           fi
