@@ -47,4 +47,3 @@ class TeamStormConnectionError(TeamStormError):
 
 class TeamStormInvalidResponseError(TeamStormError):
     """Raised when TeamStorm returns data that cannot be validated."""
-

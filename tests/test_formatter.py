@@ -1,5 +1,5 @@
-from teamstorm_mcp.formatter import format_task_context
-from teamstorm_mcp.models import TaskContext
+from teamstorm_mcp.application.models import TaskContext
+from teamstorm_mcp.presentation.fastmcp.formatter import format_task_context
 
 
 def test_format_task_context_is_readable_and_marks_data_untrusted() -> None:

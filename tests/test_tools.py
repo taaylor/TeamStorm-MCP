@@ -1,11 +1,11 @@
-import json
+from pathlib import Path
 
-import httpx
 import pytest
-import respx
+from aioresponses import aioresponses
 from fastmcp import Client
+from yarl import URL
 
-from teamstorm_mcp.server import mcp
+from teamstorm_mcp.bootstrap import mcp
 
 BASE_URL = "https://teamstorm.example.com/cwm/public/api/v1"
 
@@ -20,10 +20,11 @@ def workitem() -> dict[str, object]:
 
 
 @pytest.fixture(autouse=True)
-def teamstorm_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def teamstorm_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TEAMSTORM_URL", "https://teamstorm.example.com")
     monkeypatch.setenv("TEAMSTORM_TOKEN", "test-token")
     monkeypatch.setenv("TEAMSTORM_TIMEOUT", "1")
+    monkeypatch.setenv("TEAMSTORM_QUEUE_PATH", str(tmp_path / "queue.sqlite3"))
 
 
 async def test_tool_discovery_exposes_only_scoped_operations() -> None:
@@ -40,6 +41,8 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
         "teamstorm_get_links",
         "teamstorm_update_task",
         "teamstorm_set_task_description",
+        "teamstorm_schedule_task_closure",
+        "teamstorm_get_task_closure",
     }
     assert tools["teamstorm_get_task"].annotations.readOnlyHint is True
     assert tools["teamstorm_add_comment"].annotations.readOnlyHint is False
@@ -49,23 +52,20 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
     assert all("delete" not in name for name in tools)
 
 
-@respx.mock
-async def test_task_context_tool_returns_text_and_structured_output() -> None:
-    respx.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13").mock(
-        return_value=httpx.Response(200, json=workitem())
+async def test_task_context_tool_returns_text_and_structured_output(
+    http_mock: aioresponses,
+) -> None:
+    http_mock.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13", status=200, payload=workitem())
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/workitems/TS-13/attributes", status=200, payload={"items": []}
     )
-    respx.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13/attributes").mock(
-        return_value=httpx.Response(200, json={"items": []})
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/workitems/TS-13/comments", status=200, payload={"items": []}
     )
-    respx.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13/comments").mock(
-        return_value=httpx.Response(200, json={"items": []})
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/workitems/TS-13/attachments", status=200, payload={"items": []}
     )
-    respx.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13/attachments").mock(
-        return_value=httpx.Response(200, json={"items": []})
-    )
-    respx.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13/links").mock(
-        return_value=httpx.Response(200, json=[])
-    )
+    http_mock.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13/links", status=200, payload=[])
 
     async with Client(mcp) as client:
         result = await client.call_tool("teamstorm_get_task_context", {"task_key": "TS-13"})
@@ -77,9 +77,26 @@ async def test_task_context_tool_returns_text_and_structured_output() -> None:
     assert result.structured_content["task"]["name"] == "Implement MCP"
 
 
-@respx.mock
-async def test_expected_domain_error_is_returned_as_mcp_tool_error() -> None:
-    respx.get(f"{BASE_URL}/workspaces/TS/workitems/TS-404").mock(return_value=httpx.Response(404))
+async def test_schedule_can_be_read_in_another_mcp_session(http_mock: aioresponses) -> None:
+    http_mock.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13", payload=workitem())
+    async with Client(mcp) as client:
+        scheduled = await client.call_tool(
+            "teamstorm_schedule_task_closure",
+            {"task_key": "TS-13", "close_at": "2026-09-17T18:00:00+05:00", "target_status": "Done"},
+        )
+    async with Client(mcp) as client:
+        saved = await client.call_tool("teamstorm_get_task_closure", {"task_key": "TS-13"})
+    assert scheduled.is_error is False
+    assert saved.structured_content is not None
+    assert saved.structured_content["result"] == scheduled.structured_content
+    assert saved.structured_content["result"]["state"] == "pending"
+    assert all(method == "GET" for method, _ in http_mock.requests)
+
+
+async def test_expected_domain_error_is_returned_as_mcp_tool_error(
+    http_mock: aioresponses,
+) -> None:
+    http_mock.get(f"{BASE_URL}/workspaces/TS/workitems/TS-404", status=404)
 
     async with Client(mcp) as client:
         result = await client.call_tool(
@@ -92,17 +109,18 @@ async def test_expected_domain_error_is_returned_as_mcp_tool_error() -> None:
     assert "not found" in result.content[0].text.lower()
 
 
-@respx.mock
-async def test_comment_tool_preserves_non_idempotent_single_post() -> None:
-    route = respx.post(f"{BASE_URL}/workspaces/TS/workitems/TS-13/comments").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "id": "comment-1",
-                "text": "Implemented and verified",
-                "createdAt": "2026-09-16T10:00:00Z",
-            },
-        )
+async def test_comment_tool_preserves_non_idempotent_single_post(
+    http_mock: aioresponses,
+) -> None:
+    url = f"{BASE_URL}/workspaces/TS/workitems/TS-13/comments"
+    http_mock.post(
+        url,
+        status=200,
+        payload={
+            "id": "comment-1",
+            "text": "Implemented and verified",
+            "createdAt": "2026-09-16T10:00:00Z",
+        },
     )
 
     async with Client(mcp) as client:
@@ -112,19 +130,20 @@ async def test_comment_tool_preserves_non_idempotent_single_post() -> None:
         )
 
     assert result.is_error is False
-    assert route.call_count == 1
+    assert sum(len(calls) for calls in http_mock.requests.values()) == 1
 
 
-@respx.mock
-async def test_set_task_description_tool_sends_canonical_html() -> None:
-    route = respx.patch(f"{BASE_URL}/workspaces/TS/workitems/TS-13").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                **workitem(),
-                "description": "updated",
-            },
-        )
+async def test_set_task_description_tool_sends_canonical_html(
+    http_mock: aioresponses,
+) -> None:
+    url = f"{BASE_URL}/workspaces/TS/workitems/TS-13"
+    http_mock.patch(
+        f"{BASE_URL}/workspaces/TS/workitems/TS-13",
+        status=200,
+        payload={
+            **workitem(),
+            "description": "updated",
+        },
     )
 
     async with Client(mcp) as client:
@@ -138,7 +157,7 @@ async def test_set_task_description_tool_sends_canonical_html() -> None:
         )
 
     assert result.is_error is False
-    assert json.loads(route.calls[0].request.read()) == {
+    assert http_mock.requests[("PATCH", URL(url))][0].kwargs["json"] == {
         "description": (
             "<h2>Суть задачи</h2>\n"
             "<p>Support &lt;safe&gt; descriptions</p>\n"

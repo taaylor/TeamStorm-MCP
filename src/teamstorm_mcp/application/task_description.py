@@ -2,12 +2,12 @@
 
 from html import escape
 
-from teamstorm_mcp.constants import (
+from teamstorm_mcp.application.constants import (
     TASK_SUMMARY_HEADING,
     WORK_DONE_HEADING,
     WORK_DONE_PLACEHOLDER,
 )
-from teamstorm_mcp.exceptions import TeamStormBadRequestError
+from teamstorm_mcp.application.exceptions import TeamStormBadRequestError
 
 
 def render_task_description(task_summary: str, work_done: list[str] | None = None) -> str:

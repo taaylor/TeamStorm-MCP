@@ -1,7 +1,7 @@
 import pytest
 
-from teamstorm_mcp.exceptions import InvalidTaskKeyError
-from teamstorm_mcp.parser import TaskKey, parse_task_key
+from teamstorm_mcp.application.exceptions import InvalidTaskKeyError
+from teamstorm_mcp.application.parser import TaskKey, parse_task_key
 
 
 @pytest.mark.parametrize(
