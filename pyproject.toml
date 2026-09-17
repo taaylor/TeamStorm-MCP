@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "teamstorm-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "TeamStorm integration for AI coding agents through MCP."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,8 +14,11 @@ authors = [{ name = "Ushakov Maksim, Kolesnikov Matvey" }]
 dependencies = [
   "aiohttp>=3.14.3",
   "fastmcp==3.4.7",
+  "langgraph>=1.2.11",
+  "langgraph-checkpoint-sqlite>=3.1.1",
   "pydantic==2.13.5",
   "pydantic-settings==2.15.0",
+  "pyyaml>=6.0.3",
 ]
 
 [project.scripts]

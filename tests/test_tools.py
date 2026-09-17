@@ -43,6 +43,8 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
         "teamstorm_set_task_description",
         "teamstorm_schedule_task_closure",
         "teamstorm_get_task_closure",
+        "teamstorm_get_workflow",
+        "teamstorm_cancel_task_closure",
     }
     assert tools["teamstorm_get_task"].annotations.readOnlyHint is True
     assert tools["teamstorm_add_comment"].annotations.readOnlyHint is False

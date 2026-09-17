@@ -2,6 +2,7 @@ from fastmcp import Context, FastMCP
 from pydantic import AwareDatetime
 
 from teamstorm_mcp.application.scheduling import ClosureRequest, ClosureService, ScheduledClosure
+from teamstorm_mcp.application.workflow import WorkflowMap
 from teamstorm_mcp.presentation.fastmcp.constants import (
     READ_ONLY_TOOL_ANNOTATIONS,
     WRITE_IDEMPOTENT_TOOL_ANNOTATIONS,
@@ -23,10 +24,10 @@ def register_scheduling_tools(mcp: FastMCP) -> None:
     @mcp.tool(
         annotations=WRITE_IDEMPOTENT_TOOL_ANNOTATIONS,
         description=(
-            "Schedule a status context check after work on a task is completed. "
-            "Call only after finishing the work and when the user requested a scheduled closure. "
+            "Save closure intent as soon as the user requests a timed closure. "
             "close_at must include a timezone. One schedule per task; changed inputs replace it. "
-            "The current daemon only prepares status context; it does NOT change TeamStorm status."
+            "With a configured workflow, the daemon closes only from its trigger status when due. "
+            "Without a workflow, the daemon only prepares status context."
         ),
     )
     async def teamstorm_schedule_task_closure(
@@ -44,3 +45,18 @@ def register_scheduling_tools(mcp: FastMCP) -> None:
     )
     async def teamstorm_get_task_closure(task_key: str, ctx: Context) -> ScheduledClosure | None:
         return await tool_call(closure_service(ctx).get(task_key))
+
+    @mcp.tool(
+        annotations=READ_ONLY_TOOL_ANNOTATIONS,
+        description="Read the complete configured workflow map; null means disabled.",
+    )
+    async def teamstorm_get_workflow(ctx: Context) -> WorkflowMap | None:
+        workflow = closure_service(ctx).workflow
+        return workflow.definition if workflow else None
+
+    @mcp.tool(
+        annotations=WRITE_IDEMPOTENT_TOOL_ANNOTATIONS,
+        description="Cancel a task's saved closure intent when requested by the user.",
+    )
+    async def teamstorm_cancel_task_closure(task_key: str, ctx: Context) -> ScheduledClosure | None:
+        return await tool_call(closure_service(ctx).cancel(task_key))

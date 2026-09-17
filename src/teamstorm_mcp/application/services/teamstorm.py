@@ -1,11 +1,11 @@
 """Application services coordinating TeamStorm API operations."""
 
 import asyncio
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from teamstorm_mcp.application.constants import DEFAULT_MAX_CONTEXT_ITEMS
-from teamstorm_mcp.application.exceptions import TeamStormError
+from teamstorm_mcp.application.exceptions import TeamStormBadRequestError, TeamStormError
 from teamstorm_mcp.application.interfaces.teamstorm import TeamStormGateway
 from teamstorm_mcp.application.models import (
     Attachment,
@@ -18,6 +18,7 @@ from teamstorm_mcp.application.models import (
 )
 from teamstorm_mcp.application.parser import parse_task_key
 from teamstorm_mcp.application.task_description import render_task_description
+from teamstorm_mcp.application.workflow import Workflow
 
 
 @dataclass(slots=True)
@@ -34,9 +35,11 @@ class TeamStormService:
         client: TeamStormGateway,
         *,
         max_context_items: int = DEFAULT_MAX_CONTEXT_ITEMS,
+        workflow: Workflow | None = None,
     ) -> None:
         self._client = client
         self._max_context_items = max_context_items
+        self.workflow = workflow
 
     async def get_task(self, task_key: str) -> WorkItem:
         parsed = parse_task_key(task_key)
@@ -67,11 +70,40 @@ class TeamStormService:
         status: str | None = None,
     ) -> WorkItem:
         parsed = parse_task_key(task_key)
+        if status is not None and self.workflow is not None:
+            task = await self.get_task(task_key)
+            if self.workflow.definition.resolve(task.status) == self.workflow.definition.resolve(
+                status
+            ):
+                if name is None and description is None:
+                    return task
+                status = None
+            else:
+                await self.workflow.check(task.status, status, actor="mcp")
         return await self._client.update_workitem(
             parsed.workspace,
             parsed.key,
             TaskUpdate(name=name, description=description, status=status),
         )
+
+    async def finalize_task(
+        self, task_key: str, *, before_write: Callable[[], Awaitable[bool]]
+    ) -> WorkItem:
+        if self.workflow is None:
+            raise RuntimeError("Finalization requires a workflow map")
+        definition = self.workflow.definition
+        target = definition.states[definition.scheduled_finalization.final_state].external_status
+        task = await self.get_task(task_key)
+        await self.workflow.check(task.status, target, actor="daemon")
+        parsed = parse_task_key(task_key)
+        if not await before_write():
+            raise TeamStormBadRequestError("Closure schedule changed; finalization skipped")
+        return await self._client.update_workitem(
+            parsed.workspace, parsed.key, TaskUpdate(status=target)
+        )
+
+    async def list_tasks(self) -> list[WorkItem]:
+        return await self._client.list_workitems()
 
     async def set_task_description(
         self,

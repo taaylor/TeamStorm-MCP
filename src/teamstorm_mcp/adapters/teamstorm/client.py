@@ -39,6 +39,7 @@ from teamstorm_mcp.application.models import (
     WorkItem,
     WorkItemAttribute,
     WorkItemLink,
+    WorkspaceReference,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,6 +184,25 @@ class TeamStormClient:
             resource=f"children of task {workitem}",
         )
 
+    async def list_workitems(self) -> list[WorkItem]:
+        workspaces = await self._paginate(
+            "workspaces",
+            PaginationResponse[WorkspaceReference],
+            resource="workspaces",
+            maximum=None,
+        )
+        tasks: list[WorkItem] = []
+        for workspace in workspaces:
+            tasks.extend(
+                await self._paginate(
+                    f"workspaces/{workspace.key}/workitems",
+                    PaginationResponse[WorkItem],
+                    resource=f"tasks in {workspace.key}",
+                    maximum=None,
+                )
+            )
+        return tasks
+
     async def _paginate(
         self,
         path: str,
@@ -190,16 +210,20 @@ class TeamStormClient:
         *,
         resource: str,
         params: Mapping[str, str] | None = None,
-        maximum: int = MAX_PAGINATED_ITEMS,
+        maximum: int | None = MAX_PAGINATED_ITEMS,
     ) -> list[ModelT]:
         """Load a bounded token-paginated collection for future list endpoints."""
 
         items: list[ModelT] = []
         next_token: str | None = None
         seen_tokens: set[str] = set()
-        while len(items) < maximum:
+        while maximum is None or len(items) < maximum:
             page_params = dict(params or {})
-            page_params["maxItemsCount"] = str(min(PAGINATION_PAGE_SIZE, maximum - len(items)))
+            page_params["maxItemsCount"] = str(
+                PAGINATION_PAGE_SIZE
+                if maximum is None
+                else min(PAGINATION_PAGE_SIZE, maximum - len(items))
+            )
             if next_token is not None:
                 page_params["fromToken"] = next_token
 
@@ -214,7 +238,7 @@ class TeamStormClient:
                 response,
                 resource=resource,
             )
-            items.extend(page.items[: maximum - len(items)])
+            items.extend(page.items if maximum is None else page.items[: maximum - len(items)])
             next_token = page.next_token
             if next_token is None:
                 break
