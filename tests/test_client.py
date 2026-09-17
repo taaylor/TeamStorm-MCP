@@ -335,6 +335,37 @@ async def test_paginate_is_bounded_and_uses_tokens(
     assert ("GET", URL(f"{url}?fromToken=page-2&maxItemsCount=1")) in http_mock.requests
 
 
+async def test_list_workitems_discovers_all_workspace_and_task_pages(
+    http_mock: aioresponses,
+) -> None:
+    for key, token, next_token in [("TS", "", "second"), ("OTHER", "&fromToken=second", None)]:
+        http_mock.get(
+            f"{BASE_URL}/workspaces?maxItemsCount=200{token}",
+            payload={
+                "items": [{"id": f"id-{key}", "key": key, "name": key}],
+                "nextToken": next_token,
+            },
+        )
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/workitems?maxItemsCount=200",
+        payload={"items": [workitem("TS-1")], "nextToken": "more"},
+    )
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/workitems?maxItemsCount=200&fromToken=more",
+        payload={"items": [workitem("TS-2")]},
+    )
+    http_mock.get(
+        f"{BASE_URL}/workspaces/OTHER/workitems?maxItemsCount=200",
+        payload={"items": [workitem("OTHER-1")]},
+    )
+
+    async with TeamStormClient("https://teamstorm.example.com", TOKEN) as client:
+        result = await client.list_workitems()
+
+    assert [item.key for item in result] == ["TS-1", "TS-2", "OTHER-1"]
+    assert sum(len(calls) for calls in http_mock.requests.values()) == 5
+
+
 @pytest.mark.parametrize("redirect", [False, True])
 async def test_real_http_session_reuses_connections_and_closes(redirect: bool) -> None:
     requests: list[web.Request] = []

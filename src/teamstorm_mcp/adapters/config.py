@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     teamstorm_url: HttpUrl
     teamstorm_token: SecretStr
+    teamstorm_workflow_path: Path | None = None
     teamstorm_queue_path: Path = Field(
         default_factory=lambda: Path.home() / ".local/state/teamstorm-mcp/queue.sqlite3"
     )

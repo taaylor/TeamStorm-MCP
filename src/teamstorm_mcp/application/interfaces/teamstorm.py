@@ -13,6 +13,8 @@ from teamstorm_mcp.application.models import (
 
 
 class TeamStormGateway(Protocol):
+    async def list_workitems(self) -> list[WorkItem]: ...
+
     async def get_workitem(self, workspace: str, workitem: str) -> WorkItem: ...
 
     async def get_workitem_attributes(
