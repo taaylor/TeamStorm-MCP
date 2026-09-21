@@ -40,6 +40,8 @@ the MCP server validates transitions but does not perform the assistant's work.
 
 READ_ONLY_TOOL_ANNOTATIONS: Final[dict[str, bool]] = {
     "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
     "openWorldHint": True,
 }
 WRITE_NON_IDEMPOTENT_TOOL_ANNOTATIONS: Final[dict[str, bool]] = {

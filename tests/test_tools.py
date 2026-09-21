@@ -46,11 +46,83 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
         "teamstorm_get_workflow",
         "teamstorm_cancel_task_closure",
     }
-    assert tools["teamstorm_get_task"].annotations.readOnlyHint is True
-    assert tools["teamstorm_add_comment"].annotations.readOnlyHint is False
-    assert tools["teamstorm_add_comment"].annotations.idempotentHint is False
-    assert tools["teamstorm_update_task"].annotations.idempotentHint is True
-    assert tools["teamstorm_set_task_description"].annotations.idempotentHint is True
+    expected_annotations = {
+        "teamstorm_get_task": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_task_context": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_comments": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_add_comment": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_attachments": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_links": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_update_task": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_set_task_description": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_schedule_task_closure": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_task_closure": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_workflow": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_cancel_task_closure": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    }
+    assert {
+        name: tool.annotations.model_dump(exclude_unset=True) for name, tool in tools.items()
+    } == expected_annotations
     assert all("delete" not in name for name in tools)
 
 
