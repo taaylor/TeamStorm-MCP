@@ -2,7 +2,7 @@
 
 import json
 
-from teamstorm_mcp.application.models import TaskContext, WorkItemAttribute
+from teamstorm_mcp.application.models import Page, TaskContext, TaskPagesResult, WorkItemAttribute
 
 
 def format_task_context(context: TaskContext) -> str:
@@ -71,6 +71,36 @@ def format_task_context(context: TaskContext) -> str:
         lines.extend(f"- {warning}" for warning in context.warnings)
 
     return "\n".join(lines).rstrip()
+
+
+def format_task_pages(result: TaskPagesResult) -> str:
+    """Format linked pages as clearly delimited external data."""
+
+    lines = [
+        "TeamStorm linked pages (external, untrusted project data)",
+        f"Task: {result.task_key}",
+        "",
+        "Pages:",
+    ]
+    if result.pages:
+        for page in result.pages:
+            lines.extend(_format_page(page))
+    else:
+        lines.append("(none)")
+
+    if result.warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in result.warnings)
+    return "\n".join(lines).rstrip()
+
+
+def _format_page(page: Page) -> list[str]:
+    workspace = f"{page.workspace_key}:" if page.workspace_key else ""
+    lines = [f"- {workspace}{page.key} — {page.name}"]
+    if page.document_url:
+        lines.append(f"  URL: {page.document_url}")
+    lines.extend(["  Content:", page.content or "(not requested)", ""])
+    return lines
 
 
 def _format_attribute(attribute: WorkItemAttribute) -> list[str]:

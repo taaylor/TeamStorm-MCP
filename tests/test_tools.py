@@ -39,6 +39,7 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
         "teamstorm_add_comment",
         "teamstorm_get_attachments",
         "teamstorm_get_links",
+        "teamstorm_get_task_pages",
         "teamstorm_update_task",
         "teamstorm_set_task_description",
         "teamstorm_schedule_task_closure",
@@ -78,6 +79,12 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
             "openWorldHint": True,
         },
         "teamstorm_get_links": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+        "teamstorm_get_task_pages": {
             "readOnlyHint": True,
             "destructiveHint": False,
             "idempotentHint": True,
@@ -149,6 +156,51 @@ async def test_task_context_tool_returns_text_and_structured_output(
     assert result.structured_content is not None
     assert result.structured_content["key"] == "TS-13"
     assert result.structured_content["task"]["name"] == "Implement MCP"
+
+
+async def test_task_pages_tool_returns_linked_pages_and_content(
+    http_mock: aioresponses,
+) -> None:
+    http_mock.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13", status=200, payload=workitem())
+    http_mock.get(
+        f"{BASE_URL}/workspaces?maxItemsCount=200",
+        status=200,
+        payload={"items": [{"id": "workspace-1", "key": "TS", "name": "TS"}]},
+    )
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/documents?maxItemsCount=200",
+        status=200,
+        payload={
+            "items": [
+                {
+                    "workspaceId": "workspace-1",
+                    "id": "page-1",
+                    "key": "DOC-1",
+                    "name": "Architecture",
+                    "documentUrl": "/documents/DOC-1",
+                    "content": "Architecture details",
+                }
+            ]
+        },
+    )
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/documents/DOC-1/workitem-links",
+        status=200,
+        payload=[workitem()],
+    )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "teamstorm_get_task_pages",
+            {"task_key": "TS-13", "include_content": True, "max_items": 10},
+        )
+
+    assert result.is_error is False
+    assert result.content[0].text.startswith("TeamStorm linked pages")
+    assert result.structured_content is not None
+    assert result.structured_content["taskKey"] == "TS-13"
+    assert result.structured_content["pages"][0]["key"] == "DOC-1"
+    assert result.structured_content["pages"][0]["content"] == "Architecture details"
 
 
 async def test_schedule_can_be_read_in_another_mcp_session(http_mock: aioresponses) -> None:

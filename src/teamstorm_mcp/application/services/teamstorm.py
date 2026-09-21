@@ -4,13 +4,18 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from teamstorm_mcp.application.constants import DEFAULT_MAX_CONTEXT_ITEMS
+from teamstorm_mcp.application.constants import (
+    DEFAULT_MAX_CONTEXT_ITEMS,
+    DEFAULT_PAGE_LINK_CONCURRENCY,
+)
 from teamstorm_mcp.application.exceptions import TeamStormBadRequestError, TeamStormError
 from teamstorm_mcp.application.interfaces.teamstorm import TeamStormGateway
 from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
+    Page,
     TaskContext,
+    TaskPagesResult,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
@@ -36,10 +41,12 @@ class TeamStormService:
         *,
         max_context_items: int = DEFAULT_MAX_CONTEXT_ITEMS,
         workflow: Workflow | None = None,
+        page_link_concurrency: int = DEFAULT_PAGE_LINK_CONCURRENCY,
     ) -> None:
         self._client = client
         self._max_context_items = max_context_items
         self.workflow = workflow
+        self._page_link_concurrency = page_link_concurrency
 
     async def get_task(self, task_key: str) -> WorkItem:
         parsed = parse_task_key(task_key)
@@ -60,6 +67,78 @@ class TeamStormService:
     async def get_links(self, task_key: str) -> list[WorkItemLink]:
         parsed = parse_task_key(task_key)
         return await self._client.get_links(parsed.workspace, parsed.key)
+
+    async def get_task_pages(
+        self,
+        task_key: str,
+        *,
+        include_content: bool = True,
+        max_items: int | None = None,
+    ) -> TaskPagesResult:
+        parsed = parse_task_key(task_key)
+        limit = self._resolve_page_limit(max_items)
+        await self._client.get_workitem(parsed.workspace, parsed.key)
+        workspaces = await self._client.list_workspaces()
+        candidates: list[tuple[str, Page]] = []
+        warnings: list[str] = []
+
+        for workspace in workspaces:
+            try:
+                documents = await self._client.list_documents(workspace.key)
+            except TeamStormError as exc:
+                warnings.append(f"Pages in workspace {workspace.key} could not be loaded. {exc}")
+                continue
+            candidates.extend((workspace.key, page) for page in documents)
+
+        semaphore = asyncio.Semaphore(self._page_link_concurrency)
+
+        async def find_page(candidate: tuple[str, Page]) -> tuple[Page | None, str | None]:
+            workspace_key, page = candidate
+            async with semaphore:
+                try:
+                    linked_tasks = await self._client.get_document_workitem_links(
+                        workspace_key,
+                        page.key,
+                    )
+                except TeamStormError as exc:
+                    return None, f"Links for page {page.key} could not be loaded. {exc}"
+
+            if not any(
+                self._is_target_task(linked_task, parsed.workspace, parsed.key, workspace_key)
+                for linked_task in linked_tasks
+            ):
+                return None, None
+
+            linked_page = page.model_copy(update={"workspace_key": workspace_key})
+            if not include_content:
+                linked_page = linked_page.model_copy(update={"content": None})
+            return linked_page, None
+
+        matches = await asyncio.gather(*(find_page(candidate) for candidate in candidates))
+        pages = [page for page, warning in matches if page is not None]
+        warnings.extend(warning for _, warning in matches if warning is not None)
+        return TaskPagesResult(
+            task_key=parsed.key,
+            pages=pages[:limit],
+            warnings=warnings,
+        )
+
+    def _resolve_page_limit(self, max_items: int | None) -> int:
+        if max_items is not None and max_items < 1:
+            raise TeamStormBadRequestError("max_items must be greater than zero.")
+        return min(max_items or self._max_context_items, self._max_context_items)
+
+    @staticmethod
+    def _is_target_task(
+        linked_task: WorkItem,
+        workspace: str,
+        task_key: str,
+        page_workspace: str,
+    ) -> bool:
+        if linked_task.key != task_key:
+            return False
+        linked_workspace = linked_task.workspace.key if linked_task.workspace else page_workspace
+        return linked_workspace == workspace
 
     async def update_task(
         self,

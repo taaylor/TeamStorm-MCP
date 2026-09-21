@@ -3,6 +3,7 @@ from fastmcp import FastMCP
 from teamstorm_mcp.presentation.fastmcp.tools.attachments import register_attachments_tools
 from teamstorm_mcp.presentation.fastmcp.tools.comments import register_comments_tools
 from teamstorm_mcp.presentation.fastmcp.tools.links import register_links_tools
+from teamstorm_mcp.presentation.fastmcp.tools.pages import register_pages_tools
 from teamstorm_mcp.presentation.fastmcp.tools.scheduling import register_scheduling_tools
 from teamstorm_mcp.presentation.fastmcp.tools.workitems import register_workitems_tools
 
@@ -15,4 +16,5 @@ def register_tools(mcp: FastMCP) -> None:
     register_comments_tools(mcp)
     register_attachments_tools(mcp)
     register_links_tools(mcp)
+    register_pages_tools(mcp)
     register_scheduling_tools(mcp)

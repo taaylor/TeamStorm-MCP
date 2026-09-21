@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,9 +8,11 @@ from teamstorm_mcp.application.interfaces.teamstorm import TeamStormGateway
 from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
+    Page,
     WorkItem,
     WorkItemAttribute,
     WorkItemLink,
+    WorkspaceReference,
 )
 from teamstorm_mcp.application.services.teamstorm import TeamStormService
 
@@ -195,3 +198,53 @@ async def test_set_task_description_renders_and_updates_only_description(api: As
             "</ul>"
         )
     }
+
+
+async def test_get_task_pages_filters_linked_pages_across_workspaces() -> None:
+    client = AsyncMock()
+    client.get_workitem.return_value = task()
+    client.list_workspaces.return_value = [
+        SimpleNamespace(key="TS"),
+        SimpleNamespace(key="DOCS"),
+    ]
+    client.list_documents.side_effect = [
+        [Page(id="page-1", key="DOC-1", name="Requirements", workspaceId="workspace-1")],
+        [Page(id="page-2", key="DOC-2", name="Design", workspaceId="workspace-2")],
+    ]
+    client.get_document_workitem_links.side_effect = [
+        [SimpleNamespace(key="TS-13", workspace=None)],
+        [
+            WorkItem(
+                id="other-task",
+                key="TS-13",
+                name="Same key in another workspace",
+                workspace=WorkspaceReference(id="workspace-2", key="OTHER", name="Other"),
+            )
+        ],
+    ]
+
+    result = await TeamStormService(client).get_task_pages("TS-13")
+
+    assert [item.key for item in result.pages] == ["DOC-1"]
+    assert result.pages[0].workspace_key == "TS"
+    assert result.warnings == []
+
+
+async def test_get_task_pages_hides_content_and_applies_limit() -> None:
+    client = AsyncMock()
+    client.get_workitem.return_value = task()
+    client.list_workspaces.return_value = [SimpleNamespace(key="TS")]
+    client.list_documents.return_value = [
+        Page(id="page-1", key="DOC-1", name="Requirements", workspaceId="workspace-1"),
+        Page(id="page-2", key="DOC-2", name="Design", workspaceId="workspace-1"),
+    ]
+    client.get_document_workitem_links.return_value = [SimpleNamespace(key="TS-13", workspace=None)]
+
+    result = await TeamStormService(client).get_task_pages(
+        "TS-13",
+        include_content=False,
+        max_items=1,
+    )
+
+    assert len(result.pages) == 1
+    assert result.pages[0].content is None
