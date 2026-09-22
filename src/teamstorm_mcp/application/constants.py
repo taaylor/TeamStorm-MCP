@@ -5,6 +5,7 @@ from typing import Final
 
 DEFAULT_MAX_CONTEXT_ITEMS: Final[int] = 200
 MAX_CONTEXT_ITEMS_LIMIT: Final[int] = 1_000
+DEFAULT_PAGE_LINK_CONCURRENCY: Final[int] = 10
 
 TASK_SUMMARY_HEADING: Final[str] = "Суть задачи"
 WORK_DONE_HEADING: Final[str] = "Что было сделано"

@@ -35,6 +35,7 @@ from teamstorm_mcp.application.exceptions import (
 from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
+    Page,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
@@ -101,6 +102,29 @@ class TeamStormClient:
             resource=f"task {workitem}",
         )
         return self._validate(WorkItem, response, resource=f"task {workitem}")
+
+    async def get_document_workitem_links(
+        self,
+        workspace: str,
+        document: str,
+    ) -> list[WorkItem]:
+        response = await self._request(
+            "GET",
+            f"workspaces/{workspace}/documents/{document}/workitem-links",
+            resource=f"tasks linked to page {document}",
+        )
+        return self._validate_list(
+            TypeAdapter(list[WorkItem]),
+            response,
+            resource=f"tasks linked to page {document}",
+        )
+
+    async def list_documents(self, workspace: str) -> list[Page]:
+        return await self._paginate(
+            f"workspaces/{workspace}/documents",
+            PaginationResponse[Page],
+            resource=f"pages in {workspace}",
+        )
 
     async def get_workitem_attributes(
         self,
@@ -185,12 +209,7 @@ class TeamStormClient:
         )
 
     async def list_workitems(self) -> list[WorkItem]:
-        workspaces = await self._paginate(
-            "workspaces",
-            PaginationResponse[WorkspaceReference],
-            resource="workspaces",
-            maximum=None,
-        )
+        workspaces = await self.list_workspaces()
         tasks: list[WorkItem] = []
         for workspace in workspaces:
             tasks.extend(
@@ -202,6 +221,14 @@ class TeamStormClient:
                 )
             )
         return tasks
+
+    async def list_workspaces(self) -> list[WorkspaceReference]:
+        return await self._paginate(
+            "workspaces",
+            PaginationResponse[WorkspaceReference],
+            resource="workspaces",
+            maximum=None,
+        )
 
     async def _paginate(
         self,

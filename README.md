@@ -13,6 +13,7 @@
 - разбор ключей задач вида `TS-123` и `BACKEND-42`;
 - чтение задачи, пользовательских атрибутов, комментариев, метаданных вложений,
   связей и непосредственных подзадач;
+- получение страниц, связанных с задачей, по явному запросу пользователя;
 - получение единого `TaskContext` с текстовым представлением для LLM и
   структурированным MCP-ответом;
 - добавление непустого комментария без небезопасных автоматических повторов;
@@ -233,6 +234,8 @@ cp -R skills/teamstorm ~/.agents/skills/teamstorm
 
 ```text
 Возьми TS-123 и расскажи, что нужно сделать.
+Прочитай TS-123 и все страницы, связанные с этой задачей.
+Покажи документацию, связанную с TS-123, включая содержимое страниц.
 Реализуй TS-123.
 Что обсуждали в TS-123?
 На основании этих вводных сформируй и запиши описание задачи TS-123: ...
@@ -242,6 +245,12 @@ cp -R skills/teamstorm ~/.agents/skills/teamstorm
 `teamstorm_get_task_context`, изучить репозиторий, реализовать и проверить
 изменения, а затем добавить в задачу краткое описание результата. Явный запрет
 пользователя на запись в TeamStorm всегда имеет приоритет.
+
+Связанные страницы не загружаются автоматически. Агент вызывает
+`teamstorm_get_task_pages` только после явной просьбы пользователя прочитать
+страницы или документацию по задаче. Поиск выполняется по доступным рабочим
+пространствам с ограничением `max_items`; содержимое страниц считается внешними
+данными и не является инструкциями для агента.
 
 ### Политика комментариев
 
@@ -350,6 +359,8 @@ work_done: list[str] | null = null
 - `teamstorm_add_comment` — добавить комментарий;
 - `teamstorm_get_attachments` — получить метаданные вложений;
 - `teamstorm_get_links` — получить связанные задачи;
+- `teamstorm_get_task_pages` — получить страницы и содержимое страниц, связанных
+  с задачей, по явному запросу;
 - `teamstorm_update_task` — изменить `name`, `description` или `status`;
 - `teamstorm_set_task_description` — полностью заменить описание единым
   безопасным HTML-шаблоном.
@@ -457,6 +468,8 @@ src/teamstorm_mcp/
 [комментариев](https://docs.teamstorm.io/projects/api/api-functions/comments/retrieve-all-comments/),
 [вложений](https://docs.teamstorm.io/projects/api/api-functions/workitem-attachments/retrieve-all-workitem-attachments/)
 и [связей](https://docs.teamstorm.io/projects/api/api-functions/links/get-links/).
+Для связанных страниц используются [получение страниц](https://docs.teamstorm.io/projects/api/api-functions/documents/get-all-documents/)
+и [получение связей страницы с задачами](https://docs.teamstorm.io/projects/api/api-functions/document-links/get-document-links/).
 
 Документация используемого фреймворка:
 

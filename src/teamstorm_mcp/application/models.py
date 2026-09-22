@@ -117,6 +117,28 @@ class WorkItemLink(TeamStormModel):
     linked_workitem: WorkItem
 
 
+class Page(TeamStormModel):
+    """TeamStorm documentation page returned by the documents API."""
+
+    workspace_id: str
+    workspace_key: str | None = None
+    id: str
+    key: str
+    name: str
+    document_url: str | None = None
+    content: str | None = None
+    created_at: datetime | None = None
+    author: UserReference | None = None
+    updated_at: datetime | None = None
+    updated_by: UserReference | None = None
+    parent: ParentReference | None = None
+    version: int | None = None
+    version_url: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    is_blocked: bool | None = None
+    status: NamedReference | None = None
+
+
 class TaskUpdate(BaseModel):
     """Intentionally limited set of fields that MCP may update."""
 
@@ -134,4 +156,12 @@ class TaskContext(TeamStormModel):
     attachments: list[Attachment] = Field(default_factory=list)
     links: list[WorkItemLink] = Field(default_factory=list)
     children: list[WorkItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TaskPagesResult(TeamStormModel):
+    """Pages linked to a task, including partial-loading warnings."""
+
+    task_key: str
+    pages: list[Page] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

@@ -5,15 +5,21 @@ from typing import Protocol
 from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
+    Page,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
     WorkItemLink,
+    WorkspaceReference,
 )
 
 
 class TeamStormGateway(Protocol):
     async def list_workitems(self) -> list[WorkItem]: ...
+
+    async def list_workspaces(self) -> list[WorkspaceReference]: ...
+
+    async def list_documents(self, workspace: str) -> list[Page]: ...
 
     async def get_workitem(self, workspace: str, workitem: str) -> WorkItem: ...
 
@@ -30,6 +36,12 @@ class TeamStormGateway(Protocol):
     async def get_attachments(self, workspace: str, workitem: str) -> list[Attachment]: ...
 
     async def get_links(self, workspace: str, workitem: str) -> list[WorkItemLink]: ...
+
+    async def get_document_workitem_links(
+        self,
+        workspace: str,
+        document: str,
+    ) -> list[WorkItem]: ...
 
     async def get_children(self, workspace: str, workitem: str) -> list[WorkItem]: ...
 

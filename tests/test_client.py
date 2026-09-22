@@ -38,6 +38,19 @@ def workitem(key: str = "TS-13", name: str = "Example task") -> dict[str, object
     }
 
 
+def page(key: str = "DOC-1", name: str = "Architecture") -> dict[str, object]:
+    return {
+        "workspaceId": "workspace-1",
+        "id": f"id-{key}",
+        "key": key,
+        "name": name,
+        "documentUrl": f"/documents/{key}",
+        "content": "Page content",
+        "labels": ["docs"],
+        "isBlocked": False,
+    }
+
+
 def comment(
     comment_id: str = "comment-1",
     created_at: str = "2026-09-16T10:00:00Z",
@@ -149,6 +162,29 @@ async def test_collection_endpoints_parse_official_response_shapes(
         "GET",
         URL(f"{BASE_URL}/workspaces/TS/workitems/by-parent/TS-13?withSubItems=false"),
     ) in http_mock.requests
+
+
+async def test_document_endpoints_parse_official_response_shapes(
+    http_mock: aioresponses,
+) -> None:
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/documents?maxItemsCount=200",
+        status=200,
+        payload={"items": [page()]},
+    )
+    http_mock.get(
+        f"{BASE_URL}/workspaces/TS/documents/DOC-1/workitem-links",
+        status=200,
+        payload=[workitem()],
+    )
+
+    async with TeamStormClient("https://teamstorm.example.com", TOKEN) as client:
+        pages = await client.list_documents("TS")
+        linked_tasks = await client.get_document_workitem_links("TS", "DOC-1")
+
+    assert pages[0].key == "DOC-1"
+    assert pages[0].content == "Page content"
+    assert linked_tasks[0].key == "TS-13"
 
 
 async def test_add_comment_sends_exact_body_and_is_not_retried(
