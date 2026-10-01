@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from teamstorm_mcp.application.exceptions import TeamStormConnectionError
+from teamstorm_mcp.application.exceptions import TeamStormBadRequestError, TeamStormConnectionError
 from teamstorm_mcp.application.interfaces.teamstorm import TeamStormGateway
 from teamstorm_mcp.application.models import (
     Attachment,
@@ -97,6 +97,34 @@ async def test_get_task_context_aggregates_all_sections(api: AsyncMock) -> None:
     assert context.warnings == []
     api.get_workitem.assert_awaited_once_with("TS", "TS-13")
     api.get_children.assert_awaited_once_with("TS", "TS-13")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("workspace_key", "../TS"),
+        ("workspace_key", ""),
+        ("folder_id", "not-a-uuid"),
+        ("name", ""),
+        ("name", " \n "),
+        ("name", "x" * 256),
+        ("task_type", ""),
+        ("task_type", " \t "),
+    ],
+)
+async def test_create_task_rejects_invalid_input_before_write(
+    api: AsyncMock, field: str, value: str
+) -> None:
+    arguments = {
+        "workspace_key": "TS",
+        "folder_id": "7ea32830-3781-4f90-901e-a029cf308cd7",
+        "name": "New task",
+        "task_type": "Task",
+    }
+    arguments[field] = value
+    with pytest.raises(TeamStormBadRequestError):
+        await TeamStormService(api).create_task(**arguments)
+    api.create_workitem.assert_not_awaited()
 
 
 async def test_get_task_context_skips_disabled_sections(api: AsyncMock) -> None:

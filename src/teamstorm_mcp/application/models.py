@@ -1,8 +1,9 @@
 """Shared typed task data used by application services."""
 
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 
 def _to_camel(value: str) -> str:
@@ -137,6 +138,22 @@ class Page(TeamStormModel):
     labels: list[str] = Field(default_factory=list)
     is_blocked: bool | None = None
     status: NamedReference | None = None
+
+
+class TaskCreate(BaseModel):
+    """Required creation fields and an optional description."""
+
+    name: str = Field(min_length=1, max_length=255)
+    task_type: str = Field(min_length=1, serialization_alias="type")
+    parent_id: UUID = Field(serialization_alias="parentId")
+    description: str | None = None
+
+    @field_validator("name", "task_type")
+    @classmethod
+    def reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
 
 
 class TaskUpdate(BaseModel):

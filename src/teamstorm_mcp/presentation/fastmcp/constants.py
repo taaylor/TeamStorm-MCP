@@ -24,6 +24,9 @@ completed user-visible changes and short public API contracts. Never put errors,
 check results, infrastructure details, or database schema details in a TeamStorm
 comment. Report verification limitations only to the user in chat. Never delete
 TeamStorm data.
+Call teamstorm_create_task or teamstorm_create_subtask only when the user explicitly
+requests creation. Use a known folder UUID and task type; never invent them.
+Creation is non-idempotent: do not repeat it after an ambiguous failure.
 Read teamstorm_get_workflow before following a task workflow. A user request to
 perform the task and follow its workflow authorizes the corresponding MCP
 transitions. Follow only actor=mcp edges and only after the actual work for that

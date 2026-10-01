@@ -4,6 +4,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
+from pydantic import ValidationError
+
 from teamstorm_mcp.application.constants import (
     DEFAULT_MAX_CONTEXT_ITEMS,
     DEFAULT_PAGE_LINK_CONCURRENCY,
@@ -15,13 +17,14 @@ from teamstorm_mcp.application.models import (
     Comment,
     Page,
     TaskContext,
+    TaskCreate,
     TaskPagesResult,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
     WorkItemLink,
 )
-from teamstorm_mcp.application.parser import parse_task_key
+from teamstorm_mcp.application.parser import parse_task_key, parse_workspace_key
 from teamstorm_mcp.application.task_description import render_task_description
 from teamstorm_mcp.application.workflow import Workflow
 
@@ -51,6 +54,42 @@ class TeamStormService:
     async def get_task(self, task_key: str) -> WorkItem:
         parsed = parse_task_key(task_key)
         return await self._client.get_workitem(parsed.workspace, parsed.key)
+
+    async def create_task(
+        self,
+        workspace_key: str,
+        folder_id: str,
+        name: str,
+        task_type: str,
+        description: str | None = None,
+    ) -> WorkItem:
+        workspace = parse_workspace_key(workspace_key)
+        try:
+            task = TaskCreate.model_validate(
+                {
+                    "name": name,
+                    "task_type": task_type,
+                    "parent_id": folder_id,
+                    "description": description,
+                }
+            )
+        except ValidationError as exc:
+            raise TeamStormBadRequestError(
+                "Task creation requires a nonblank name (up to 255 characters), "
+                "a nonblank task_type, and a parent UUID."
+            ) from exc
+        return await self._client.create_workitem(workspace, task)
+
+    async def create_subtask(
+        self,
+        parent_task_key: str,
+        name: str,
+        task_type: str,
+        description: str | None = None,
+    ) -> WorkItem:
+        parsed = parse_task_key(parent_task_key)
+        parent = await self._client.get_workitem(parsed.workspace, parsed.key)
+        return await self.create_task(parsed.workspace, parent.id, name, task_type, description)
 
     async def get_comments(self, task_key: str) -> list[Comment]:
         parsed = parse_task_key(task_key)

@@ -34,6 +34,8 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
     tools = {tool.name: tool for tool in result}
     assert set(tools) == {
         "teamstorm_get_task",
+        "teamstorm_create_task",
+        "teamstorm_create_subtask",
         "teamstorm_get_task_context",
         "teamstorm_get_comments",
         "teamstorm_add_comment",
@@ -48,6 +50,18 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
         "teamstorm_cancel_task_closure",
     }
     expected_annotations = {
+        "teamstorm_create_task": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+        "teamstorm_create_subtask": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
         "teamstorm_get_task": {
             "readOnlyHint": True,
             "destructiveHint": False,
@@ -131,6 +145,71 @@ async def test_tool_discovery_exposes_only_scoped_operations() -> None:
         name: tool.annotations.model_dump(exclude_unset=True) for name, tool in tools.items()
     } == expected_annotations
     assert all("delete" not in name for name in tools)
+    assert set(tools["teamstorm_create_task"].inputSchema["required"]) == {
+        "workspace_key",
+        "folder_id",
+        "name",
+        "task_type",
+    }
+    assert set(tools["teamstorm_create_subtask"].inputSchema["required"]) == {
+        "parent_task_key",
+        "name",
+        "task_type",
+    }
+
+
+@pytest.mark.parametrize("subtask", [False, True])
+@pytest.mark.parametrize("description", [None, "", "<p>Requirements</p>"])
+async def test_creation_tools_send_parent_uuid_and_return_created_task(
+    http_mock: aioresponses, subtask: bool, description: str | None
+) -> None:
+    parent_id = "7ea32830-3781-4f90-901e-a029cf308cd7"
+    url = f"{BASE_URL}/workspaces/TS/workitems"
+    arguments = {"name": "New task", "task_type": "Task"}
+    if subtask:
+        http_mock.get(f"{url}/TS-13", payload={**workitem(), "id": parent_id})
+        arguments["parent_task_key"] = " ts-13 "
+    else:
+        arguments.update(workspace_key=" ts ", folder_id=parent_id)
+    if description is not None:
+        arguments["description"] = description
+    http_mock.post(url, payload={**workitem(), "key": "TS-14", "name": "New task"})
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "teamstorm_create_subtask" if subtask else "teamstorm_create_task", arguments
+        )
+
+    assert not result.is_error
+    assert result.structured_content["key"] == "TS-14"
+    expected = {"name": "New task", "type": "Task", "parentId": parent_id}
+    if description is not None:
+        expected["description"] = description
+    assert http_mock.requests[("POST", URL(url))][0].kwargs["json"] == expected
+
+
+async def test_create_subtask_parent_not_found_prevents_post(http_mock: aioresponses) -> None:
+    http_mock.get(f"{BASE_URL}/workspaces/TS/workitems/TS-13", status=404)
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "teamstorm_create_subtask",
+            {"parent_task_key": "TS-13", "name": "Child", "task_type": "Task"},
+            raise_on_error=False,
+        )
+    assert result.is_error
+    assert all(method == "GET" for method, _ in http_mock.requests)
+
+
+async def test_create_task_invalid_input_returns_tool_error(http_mock: aioresponses) -> None:
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "teamstorm_create_task",
+            {"workspace_key": "TS", "folder_id": "invalid", "name": "New", "task_type": "Task"},
+            raise_on_error=False,
+        )
+    assert result.is_error
+    assert "parent UUID" in result.content[0].text
+    assert not http_mock.requests
 
 
 async def test_task_context_tool_returns_text_and_structured_output(
