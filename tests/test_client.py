@@ -22,7 +22,7 @@ from teamstorm_mcp.application.exceptions import (
     TeamStormServerError,
     TeamStormTimeoutError,
 )
-from teamstorm_mcp.application.models import TaskUpdate, WorkItem
+from teamstorm_mcp.application.models import TaskCreate, TaskUpdate, WorkItem
 
 BASE_URL = "https://teamstorm.example.com/cwm/public/api/v1"
 TOKEN = SecretStr("test-secret-token")
@@ -435,6 +435,52 @@ async def test_real_http_session_reuses_connections_and_closes(redirect: bool) -
         assert all(r.headers["Accept"] == "application/json" for r in requests)
         if not redirect:
             assert requests[0].transport is requests[1].transport
+
+
+@pytest.mark.parametrize(
+    ("status", "failure", "error_type"),
+    [
+        (429, None, TeamStormRateLimitError),
+        (503, None, TeamStormServerError),
+        (200, TimeoutError("slow"), TeamStormTimeoutError),
+        (200, aiohttp.ClientConnectionError("lost"), TeamStormConnectionError),
+    ],
+)
+async def test_create_workitem_is_not_retried(
+    http_mock: aioresponses,
+    status: int,
+    failure: Exception | None,
+    error_type: type[Exception],
+) -> None:
+    url = f"{BASE_URL}/workspaces/TS/workitems"
+    http_mock.post(url, status=status, exception=failure, repeat=True)
+    task = TaskCreate.model_validate(
+        {
+            "name": "New task",
+            "task_type": "Task",
+            "parent_id": "7ea32830-3781-4f90-901e-a029cf308cd7",
+        }
+    )
+    async with TeamStormClient("https://teamstorm.example.com", TOKEN) as client:
+        with pytest.raises(error_type):
+            await client.create_workitem("TS", task)
+    assert len(http_mock.requests[("POST", URL(url))]) == 1
+
+
+async def test_create_workitem_rejects_invalid_response(http_mock: aioresponses) -> None:
+    url = f"{BASE_URL}/workspaces/TS/workitems"
+    http_mock.post(url, payload={"id": "new-id"})
+    task = TaskCreate.model_validate(
+        {
+            "name": "New task",
+            "task_type": "Task",
+            "parent_id": "7ea32830-3781-4f90-901e-a029cf308cd7",
+        }
+    )
+    async with TeamStormClient("https://teamstorm.example.com", TOKEN) as client:
+        with pytest.raises(TeamStormInvalidResponseError):
+            await client.create_workitem("TS", task)
+    assert len(http_mock.requests[("POST", URL(url))]) == 1
 
 
 @pytest.mark.parametrize("failure", [None, TimeoutError("slow")])

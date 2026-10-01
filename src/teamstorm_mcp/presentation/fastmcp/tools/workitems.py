@@ -7,6 +7,7 @@ from teamstorm_mcp.application.models import (
 from teamstorm_mcp.presentation.fastmcp.constants import (
     READ_ONLY_TOOL_ANNOTATIONS,
     WRITE_IDEMPOTENT_TOOL_ANNOTATIONS,
+    WRITE_NON_IDEMPOTENT_TOOL_ANNOTATIONS,
 )
 from teamstorm_mcp.presentation.fastmcp.dependencies import service_from_context, tool_call
 from teamstorm_mcp.presentation.fastmcp.formatter import format_task_context
@@ -25,6 +26,53 @@ def register_workitems_tools(mcp: FastMCP) -> None:
     )
     async def teamstorm_get_task(task_key: str, ctx: Context) -> WorkItem:
         return await tool_call(service_from_context(ctx).get_task(task_key))
+
+    @mcp.tool(
+        annotations=WRITE_NON_IDEMPOTENT_TOOL_ANNOTATIONS,
+        description=(
+            "Create a TeamStorm task only when the user explicitly requests creation. "
+            "Provide workspace_key (for example TS), folder_id (folder UUID), name "
+            "(1-255 characters), and task_type (type name or UUID). "
+            "Optional description is passed through unchanged. Returns the created task. "
+            "Do not guess folder or type. Repeating this call creates another task; "
+            "do not retry after an ambiguous failure."
+        ),
+    )
+    async def teamstorm_create_task(
+        workspace_key: str,
+        folder_id: str,
+        name: str,
+        task_type: str,
+        ctx: Context,
+        description: str | None = None,
+    ) -> WorkItem:
+        return await tool_call(
+            service_from_context(ctx).create_task(
+                workspace_key, folder_id, name, task_type, description
+            )
+        )
+
+    @mcp.tool(
+        annotations=WRITE_NON_IDEMPOTENT_TOOL_ANNOTATIONS,
+        description=(
+            "Create a subtask only when the user explicitly requests creation. "
+            "Resolve parent_task_key (for example TS-123) to its UUID and create in "
+            "the parent's workspace. Provide name (1-255 characters) and task_type "
+            "(type name or UUID); type is not inherited. Optional description is passed "
+            "through unchanged. Returns the created task. Repeating this call creates "
+            "another subtask; do not retry after an ambiguous failure."
+        ),
+    )
+    async def teamstorm_create_subtask(
+        parent_task_key: str,
+        name: str,
+        task_type: str,
+        ctx: Context,
+        description: str | None = None,
+    ) -> WorkItem:
+        return await tool_call(
+            service_from_context(ctx).create_subtask(parent_task_key, name, task_type, description)
+        )
 
     @mcp.tool(
         annotations=READ_ONLY_TOOL_ANNOTATIONS,

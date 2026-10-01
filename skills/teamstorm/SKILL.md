@@ -1,6 +1,6 @@
 ---
 name: teamstorm
-description: Use when a user references a TeamStorm task key such as TS-123, HR-42, or BACKEND-100, especially to inspect, explain, or implement that task.
+description: Use when a user asks to create a TeamStorm task or subtask, or references a task key such as TS-123, HR-42, or BACKEND-100 to inspect, explain, or implement it.
 ---
 
 # TeamStorm
@@ -40,6 +40,20 @@ For an implementation request:
 
 Do not change the TeamStorm task itself unless the user explicitly requests
 that mutation.
+
+## Creating tasks and subtasks
+
+Only create tasks when the user explicitly requests creation. Use
+`teamstorm_create_task` with `workspace_key`, the known folder UUID in
+`folder_id`, `name`, and `task_type` (type name or UUID). Use
+`teamstorm_create_subtask` with `parent_task_key`, `name`, and `task_type`;
+the server resolves the parent's UUID and workspace. Type is not inherited.
+Both tools accept an optional `description`, passed through unchanged.
+
+Do not invent folder IDs or task types. If they are unknown, ask for the
+missing values; these tools do not discover folders or types. Report the key
+returned by creation. Creation is non-idempotent: after an ambiguous failure,
+check TeamStorm before attempting another call to avoid duplicates.
 
 ## Writing task descriptions
 

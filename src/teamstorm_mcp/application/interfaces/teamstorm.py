@@ -6,6 +6,7 @@ from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
     Page,
+    TaskCreate,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
@@ -22,6 +23,8 @@ class TeamStormGateway(Protocol):
     async def list_documents(self, workspace: str) -> list[Page]: ...
 
     async def get_workitem(self, workspace: str, workitem: str) -> WorkItem: ...
+
+    async def create_workitem(self, workspace: str, task: TaskCreate) -> WorkItem: ...
 
     async def get_workitem_attributes(
         self,

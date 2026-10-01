@@ -36,6 +36,7 @@ from teamstorm_mcp.application.models import (
     Attachment,
     Comment,
     Page,
+    TaskCreate,
     TaskUpdate,
     WorkItem,
     WorkItemAttribute,
@@ -275,6 +276,15 @@ class TeamStormClient:
                 )
             seen_tokens.add(next_token)
         return items
+
+    async def create_workitem(self, workspace: str, task: TaskCreate) -> WorkItem:
+        response = await self._request(
+            "POST",
+            f"workspaces/{workspace}/workitems",
+            json=task.model_dump(mode="json", by_alias=True, exclude_none=True),
+            resource=f"new task in workspace {workspace}",
+        )
+        return self._validate(WorkItem, response, resource="created task")
 
     async def update_workitem(
         self,
